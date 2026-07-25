@@ -9,7 +9,11 @@ function mapRow(row) {
     status: row.status || "ACTIVE",
     command: row.command || "",
     confirmedStatus: row.confirmed_status || "",
-    pnl: row.pnl,
+    // NOTE: Postgres "numeric" columns come back from the pg driver as
+    // STRINGS (not JS numbers) to avoid float precision loss. Every
+    // numeric field here must be explicitly Number()-wrapped, or the
+    // frontend's .toFixed() calls crash with "toFixed is not a function".
+    pnl: row.pnl === null || row.pnl === undefined ? null : Number(row.pnl),
     openPositions: row.open_positions,
     lastSeen: row.last_seen || "",
     license: row.license || "ACTIVE",
@@ -20,9 +24,9 @@ function mapRow(row) {
     timeFilterEnd: row.time_filter_end || "",
     dailyProfitTarget: row.daily_profit_target || "",
     exitBlockedReason: row.exit_blocked_reason || "",
-    startingBalance: row.starting_balance === null ? "" : row.starting_balance,
+    startingBalance: row.starting_balance === null || row.starting_balance === undefined ? "" : Number(row.starting_balance),
     startingBalanceDate: row.starting_balance_date || "",
-    lastKnownBalance: row.last_known_balance === null ? "" : row.last_known_balance,
+    lastKnownBalance: row.last_known_balance === null || row.last_known_balance === undefined ? "" : Number(row.last_known_balance),
     eaVersion: row.ea_version || "",
     requestedSettings: row.requested_settings || "",
     confirmedSettings: row.confirmed_settings || "",
