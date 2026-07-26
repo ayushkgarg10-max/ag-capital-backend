@@ -17,6 +17,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// SAFETY NET: any error anywhere that isn't caught by a route's own
+// try/catch would otherwise crash the ENTIRE process (killing every
+// account's heartbeat mid-flight until Render auto-restarts). These
+// two handlers log the error instead of letting Node.js kill the
+// process - the specific request that caused it may still fail, but
+// every OTHER account's requests keep working normally.
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL - recovered] Uncaught exception:", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[FATAL - recovered] Unhandled promise rejection:", reason);
+});
+
 // Simple health-check - useful for confirming the service is alive.
 app.get("/health", (req, res) => res.status(200).json({ ok: true }));
 
