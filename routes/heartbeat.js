@@ -16,26 +16,6 @@ async function upsertBalanceHistory(account, balance) {
      on conflict (account, date) do update set balance=$3`,
     [account, date, balance]
   );
-
-  // TELEGRAM daily-target check ke liye - aaj ka booked (realized) profit
-  try {
-    const since = new Date();
-    since.setUTCDate(since.getUTCDate() - 5);
-    const sinceStr = since.toISOString().slice(0, 10);
-    const rows = await query(
-      "select date, balance from balance_history where account = $1 and date >= $2 order by date desc",
-      [account, sinceStr]
-    );
-    if (rows.length >= 2) {
-      const latestDateStr = rows[0].date.toISOString().slice(0, 10);
-      if (latestDateStr === date) {
-        return Number(rows[0].balance) - Number(rows[1].balance);
-      }
-    }
-  } catch (err) {
-    // Non-fatal - daily-target alert just won't fire this cycle.
-  }
-  return null;
 }
 
 router.post("/heartbeat", async (req, res) => {
@@ -74,12 +54,20 @@ router.post("/heartbeat", async (req, res) => {
     if (body.confirmedLicense !== undefined) patch.confirmed_license = String(body.confirmedLicense).toUpperCase();
     if (body.eaVersion !== undefined) patch.ea_version = String(body.eaVersion);
     if (body.confirmedSettings !== undefined) patch.confirmed_settings = String(body.confirmedSettings);
+    if (body.confirmedTradingMode !== undefined) patch.confirmed_trading_mode = String(body.confirmedTradingMode).toUpperCase();
     if (body.buyLot !== undefined) patch.buy_lot = Number(body.buyLot);
     if (body.sellLot !== undefined) patch.sell_lot = Number(body.sellLot);
     if (body.buyPnl !== undefined) patch.buy_pnl = Number(body.buyPnl);
     if (body.sellPnl !== undefined) patch.sell_pnl = Number(body.sellPnl);
+    // FIXED: previously "today's booked profit" was computed as a
+    // balance_history diff (today's balance minus yesterday's), which
+    // INCLUDES deposits/withdrawals - a withdrawal looked like a big
+    // loss, a deposit looked like extra profit. The EA now reports its
+    // own clean, deal-history-based number (filtered to only its own
+    // trades) - store that directly instead.
+    if (body.dailyRealizedProfit !== undefined) patch.today_realized_profit = Number(body.dailyRealizedProfit);
 
-    let todaysEarning = null;
+    let todaysEarning = body.dailyRealizedProfit !== undefined ? Number(body.dailyRealizedProfit) : null;
     if (body.balance !== undefined) {
       const reportedBalance = Number(body.balance);
       if (row.starting_balance === null || row.starting_balance === undefined) {
@@ -87,7 +75,10 @@ router.post("/heartbeat", async (req, res) => {
         patch.starting_balance_date = todayDateString();
       }
       patch.last_known_balance = reportedBalance;
-      todaysEarning = await upsertBalanceHistory(account, reportedBalance);
+      // balance_history is still recorded (useful for balance-over-time
+      // charting elsewhere) - just no longer used for the daily-target
+      // check below, since that number can be deposit/withdrawal-skewed.
+      await upsertBalanceHistory(account, reportedBalance);
     }
 
     // TELEGRAM: big drawdown/loss alert
