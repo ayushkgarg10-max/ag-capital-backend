@@ -19,6 +19,7 @@ function mapRow(row) {
     license: row.license || "ACTIVE",
     confirmedLicense: row.confirmed_license || "",
     tradingMode: row.trading_mode || "",
+    confirmedTradingMode: row.confirmed_trading_mode || "",
     timeFilterEnabled: row.time_filter_enabled || "",
     timeFilterStart: row.time_filter_start || "",
     timeFilterEnd: row.time_filter_end || "",
@@ -34,6 +35,9 @@ function mapRow(row) {
     sellLot: row.sell_lot === null || row.sell_lot === undefined ? 0 : Number(row.sell_lot),
     buyPnl: row.buy_pnl === null || row.buy_pnl === undefined ? 0 : Number(row.buy_pnl),
     sellPnl: row.sell_pnl === null || row.sell_pnl === undefined ? 0 : Number(row.sell_pnl),
+    // Deal-history based (EA-reported, magic-number filtered) - NOT a
+    // balance-diff, so deposits/withdrawals never skew this.
+    todayRealizedProfit: row.today_realized_profit === null || row.today_realized_profit === undefined ? 0 : Number(row.today_realized_profit),
   };
 }
 
