@@ -50,39 +50,22 @@ async function runOfflineCheck() {
 }
 
 async function runDailySummary() {
-  const today = todayDateString();
-  const since = daysAgoDateString(7);
-
-  const rows = await query(
-    "select account, date, balance from balance_history where date >= $1 order by account asc, date desc",
-    [since]
+  // FIXED: previously computed via balance_history diff (today's
+  // balance minus yesterday's) - included deposits/withdrawals, so a
+  // withdrawal showed up as a loss and a deposit as extra profit in
+  // this exact Telegram message. Now uses the EA-reported
+  // today_realized_profit column (deal-history based, filtered to only
+  // this EA's own trades) - unaffected by money moved in/out for other
+  // reasons.
+  const accounts = await query(
+    "select account, telegram_chat_id, today_realized_profit from accounts where today_realized_profit is not null"
   );
-
-  const byAccount = {};
-  for (const r of rows) {
-    const dateStr = r.date.toISOString().slice(0, 10);
-    if (!byAccount[r.account]) byAccount[r.account] = [];
-    byAccount[r.account].push({ date: dateStr, balance: r.balance });
-  }
-
-  const earnings = {};
-  for (const account of Object.keys(byAccount)) {
-    const list = byAccount[account];
-    const latest = list[0];
-    earnings[account] =
-      latest && latest.date === today && list.length > 1
-        ? Number(latest.balance) - Number(list[1].balance)
-        : 0;
-  }
-
-  const accounts = await query("select account, telegram_chat_id from accounts");
 
   let sentToClients = 0;
   const adminLines = [];
   await Promise.allSettled(
     accounts.map(async (a) => {
-      const earning = earnings[a.account];
-      if (earning === undefined) return;
+      const earning = Number(a.today_realized_profit) || 0;
       adminLines.push(`${a.account}: ${earning >= 0 ? "+" : ""}${earning.toFixed(2)}`);
       if (a.telegram_chat_id) {
         await sendTelegramMessage(
