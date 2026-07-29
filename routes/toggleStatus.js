@@ -66,13 +66,22 @@ router.post("/toggle-status", async (req, res) => {
 
     if (existingRows.length === 0) {
       if (create === true) {
+        // BUGFIX: telegramChatId must be included HERE (in the INSERT
+        // itself) - this branch returns immediately after, so the later
+        // patch-based telegramChatId handling further down never runs
+        // for a brand-new account. Without this, a new account linked
+        // to a client that already has a Telegram Chat ID set would
+        // never get telegram_chat_id populated, silently breaking every
+        // Telegram alert (drawdown, daily target, license, offline) for
+        // that account.
         await query(
-          `insert into accounts (account, status, license) values ($1,$2,$3)
-           on conflict (account) do update set status=$2, license=$3`,
+          `insert into accounts (account, status, license, telegram_chat_id) values ($1,$2,$3,$4)
+           on conflict (account) do update set status=$2, license=$3, telegram_chat_id=coalesce(excluded.telegram_chat_id, accounts.telegram_chat_id)`,
           [
             String(account),
             status !== undefined ? String(status).toUpperCase() : "ACTIVE",
             license !== undefined ? String(license).toUpperCase() : "ACTIVE",
+            telegramChatId !== undefined ? String(telegramChatId).trim() || null : null,
           ]
         );
         res.status(200).json({ success: true, message: "Created new row for account " + account });
@@ -220,6 +229,20 @@ router.post("/toggle-status", async (req, res) => {
         fields.push(String(Number(layer.drawdown) || 0));
         fields.push(String(Number(layer.distance) || 0));
       }
+      // Setoff & Cross-Direction Setoff - 9 fields appended at indices
+      // 25-33 (EA's PollAdvancedSettings expects exactly this order).
+      // Older EA versions (<1.77) simply won't have these indices to
+      // read and will keep using their own Inp*/setfile defaults - no
+      // breakage either direction.
+      fields.push(a.setoffEnabled ? "true" : "false");
+      fields.push(String(Number(a.setoffTriggerDrawdownUSD) || 0));
+      fields.push(String(Number(a.setoffMinProfitToTrigger) || 0));
+      fields.push(String(Number(a.setoffReentryBufferPoints) || 0));
+      fields.push(String(Number(a.setoffReentryTimeoutHours) || 0));
+      fields.push(a.setoffImmediateReentry ? "true" : "false");
+      fields.push(a.crossSetoffEnabled ? "true" : "false");
+      fields.push(String(Number(a.crossSetoffTriggerDrawdownUSD) || 0));
+      fields.push(String(Number(a.crossSetoffBudgetPct) || 0));
       const newSettingsStr = fields.join("|");
       if (newSettingsStr !== (current.requested_settings || "")) {
         patch.requested_settings = newSettingsStr;
