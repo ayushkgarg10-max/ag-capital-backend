@@ -19,7 +19,7 @@ function daysAgoDateString(n) {
 
 async function runOfflineCheck() {
   const rows = await query(
-    "select account, last_seen, status, telegram_chat_id, offline_alert_sent from accounts"
+    "select account, last_seen, status, telegram_chat_id, nickname, offline_alert_sent from accounts"
   );
   const now = Date.now();
   let alerted = 0,
@@ -30,17 +30,18 @@ async function runOfflineCheck() {
       const lastSeenMs = row.last_seen ? new Date(row.last_seen).getTime() : 0;
       const minutesStale = lastSeenMs ? (now - lastSeenMs) / 60000 : Infinity;
       const isStale = minutesStale > OFFLINE_THRESHOLD_MIN;
+      const accountLabel = row.nickname ? `${row.account} (${row.nickname})` : row.account;
 
       if (isStale && !row.offline_alert_sent) {
         await query("update accounts set offline_alert_sent = true where account = $1", [row.account]);
         await notifyEvent(
           row.telegram_chat_id,
-          `🔴 <b>Account Offline</b>\nAccount: ${row.account}\nLast heartbeat: ${Math.round(minutesStale)} min pehle`
+          `🔴 <b>Account Offline</b>\nAccount: ${accountLabel}\nLast heartbeat: ${Math.round(minutesStale)} min pehle`
         );
         alerted++;
       } else if (!isStale && row.offline_alert_sent) {
         await query("update accounts set offline_alert_sent = false where account = $1", [row.account]);
-        await notifyEvent(row.telegram_chat_id, `🟢 <b>Account Back Online</b>\nAccount: ${row.account}`);
+        await notifyEvent(row.telegram_chat_id, `🟢 <b>Account Back Online</b>\nAccount: ${accountLabel}`);
         recovered++;
       }
     })
@@ -58,7 +59,7 @@ async function runDailySummary() {
   // this EA's own trades) - unaffected by money moved in/out for other
   // reasons.
   const accounts = await query(
-    "select account, telegram_chat_id, today_realized_profit from accounts where today_realized_profit is not null"
+    "select account, telegram_chat_id, nickname, today_realized_profit from accounts where today_realized_profit is not null"
   );
 
   let sentToClients = 0;
@@ -66,11 +67,12 @@ async function runDailySummary() {
   await Promise.allSettled(
     accounts.map(async (a) => {
       const earning = Number(a.today_realized_profit) || 0;
-      adminLines.push(`${a.account}: ${earning >= 0 ? "+" : ""}${earning.toFixed(2)}`);
+      const accountLabel = a.nickname ? `${a.account} (${a.nickname})` : a.account;
+      adminLines.push(`${accountLabel}: ${earning >= 0 ? "+" : ""}${earning.toFixed(2)}`);
       if (a.telegram_chat_id) {
         await sendTelegramMessage(
           a.telegram_chat_id,
-          `📊 <b>Aaj ka Booked Profit</b>\nAccount: ${a.account}\n${earning >= 0 ? "+" : ""}${earning.toFixed(2)}`
+          `📊 <b>Aaj ka Booked Profit</b>\nAccount: ${accountLabel}\n${earning >= 0 ? "+" : ""}${earning.toFixed(2)}`
         );
         sentToClients++;
       }
