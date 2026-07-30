@@ -12,6 +12,7 @@ import accountSettingsRouter from "./routes/accountSettings.js";
 import auditLogRouter from "./routes/auditLog.js";
 import todayEarningsRouter from "./routes/todayEarnings.js";
 import cronCheckRouter from "./routes/cronCheck.js";
+import telegramWebhookRouter from "./routes/telegramWebhook.js";
 
 const app = express();
 app.use(cors());
@@ -44,6 +45,7 @@ app.use("/api", accountSettingsRouter);
 app.use("/api", auditLogRouter);
 app.use("/api", todayEarningsRouter);
 app.use("/api", cronCheckRouter);
+app.use("/api", telegramWebhookRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
