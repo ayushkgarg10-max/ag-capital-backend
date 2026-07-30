@@ -37,6 +37,8 @@ router.post("/toggle-status", async (req, res) => {
       dailyProfitTarget,
       advancedSettings,
       telegramChatId,
+      nickname,
+      renameFrom,
     } = req.body || {};
 
     const hasAnyField =
@@ -50,16 +52,43 @@ router.post("/toggle-status", async (req, res) => {
       timeFilterEnd !== undefined ||
       dailyProfitTarget !== undefined ||
       advancedSettings !== undefined ||
-      telegramChatId !== undefined;
+      telegramChatId !== undefined ||
+      nickname !== undefined ||
+      renameFrom !== undefined;
 
     if (!account || !hasAnyField) {
       res.status(400).json({ success: false, message: "Missing account, and at least one field to update" });
       return;
     }
 
+    // ACCOUNT NUMBER RENAME: admin edited an account's MT5 account
+    // number in the Accounts section. `renameFrom` = the OLD number,
+    // `account` = the NEW number. This has to happen BEFORE the normal
+    // existingRows lookup below (which looks up by the NEW `account`
+    // value) - otherwise the old row would just sit there orphaned
+    // under its old number while a separate blank row silently got
+    // created under the new number, losing all history/audit-log ties.
+    if (renameFrom !== undefined && String(renameFrom).trim() && String(renameFrom).trim() !== String(account).trim()) {
+      const oldAcc = String(renameFrom).trim();
+      const newAcc = String(account).trim();
+      const oldRows = await query("select account from accounts where account = $1", [oldAcc]);
+      if (oldRows.length > 0) {
+        // Rename across every table that references the account number,
+        // so balance-history charts and audit-log history stay linked
+        // to the (now-renamed) account instead of getting orphaned.
+        await query("update accounts set account = $1 where account = $2", [newAcc, oldAcc]);
+        await query("update balance_history set account = $1 where account = $2", [newAcc, oldAcc]);
+        await query("update audit_log set account = $1 where account = $2", [newAcc, oldAcc]);
+        await logAudit(newAcc, "accountRenamed", oldAcc, newAcc, actor);
+      }
+      // If oldAcc didn't exist at all (nothing to rename), fall through -
+      // the rest of this request still applies whatever OTHER fields
+      // were sent, same as a normal update/create for `account`.
+    }
+
     const existingRows = await query(
       `select account, status, command, license, trading_mode, time_filter_enabled, time_filter_start,
-              time_filter_end, daily_profit_target, requested_settings, telegram_chat_id
+              time_filter_end, daily_profit_target, requested_settings, telegram_chat_id, nickname
        from accounts where account = $1`,
       [account]
     );
@@ -75,13 +104,14 @@ router.post("/toggle-status", async (req, res) => {
         // Telegram alert (drawdown, daily target, license, offline) for
         // that account.
         await query(
-          `insert into accounts (account, status, license, telegram_chat_id) values ($1,$2,$3,$4)
-           on conflict (account) do update set status=$2, license=$3, telegram_chat_id=coalesce(excluded.telegram_chat_id, accounts.telegram_chat_id)`,
+          `insert into accounts (account, status, license, telegram_chat_id, nickname) values ($1,$2,$3,$4,$5)
+           on conflict (account) do update set status=$2, license=$3, telegram_chat_id=coalesce(excluded.telegram_chat_id, accounts.telegram_chat_id), nickname=coalesce(excluded.nickname, accounts.nickname)`,
           [
             String(account),
             status !== undefined ? String(status).toUpperCase() : "ACTIVE",
             license !== undefined ? String(license).toUpperCase() : "ACTIVE",
             telegramChatId !== undefined ? String(telegramChatId).trim() || null : null,
+            nickname !== undefined ? String(nickname).trim() || null : null,
           ]
         );
         res.status(200).json({ success: true, message: "Created new row for account " + account });
@@ -203,6 +233,14 @@ router.post("/toggle-status", async (req, res) => {
       }
     }
 
+    if (nickname !== undefined) {
+      const newNickname = String(nickname).trim();
+      if (newNickname !== (current.nickname || "")) {
+        patch.nickname = newNickname;
+        auditEntries.push({ action: "nickname", oldValue: current.nickname, newValue: newNickname });
+      }
+    }
+
     if (advancedSettings !== undefined) {
       const a = advancedSettings || {};
       const dirSource = String(a.directionSource || "EMA").trim().toUpperCase();
@@ -263,9 +301,10 @@ router.post("/toggle-status", async (req, res) => {
     // TELEGRAM: License change ka notification.
     if (patch.license !== undefined) {
       const chatId = patch.telegram_chat_id !== undefined ? patch.telegram_chat_id : current.telegram_chat_id;
+      const accountLabel = current.nickname ? `${account} (${current.nickname})` : account;
       await notifyEvent(
         chatId,
-        `🔐 <b>License ${patch.license}</b>\nAccount: ${account}\n(pehle: ${current.license || "—"})`
+        `🔐 <b>License ${patch.license}</b>\nAccount: ${accountLabel}\n(pehle: ${current.license || "—"})`
       );
     }
 
