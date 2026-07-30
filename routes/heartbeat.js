@@ -35,7 +35,7 @@ router.post("/heartbeat", async (req, res) => {
     }
 
     const existingRows = await query(
-      `select account, command, starting_balance, daily_profit_target, telegram_chat_id,
+      `select account, command, starting_balance, daily_profit_target, telegram_chat_id, nickname,
               drawdown_alert_threshold, drawdown_alert_sent, daily_target_notified_date
        from accounts where account = $1`,
       [account]
@@ -86,14 +86,15 @@ router.post("/heartbeat", async (req, res) => {
       const pnlNum = Number(body.pnl);
       const threshold =
         row.drawdown_alert_threshold === null || row.drawdown_alert_threshold === undefined
-          ? -500
+          ? -1000
           : Number(row.drawdown_alert_threshold);
       const alreadySent = !!row.drawdown_alert_sent;
+      const accountLabel = row.nickname ? `${account} (${row.nickname})` : account;
       if (pnlNum <= threshold && !alreadySent) {
         patch.drawdown_alert_sent = true;
         await notifyEvent(
           row.telegram_chat_id,
-          `⚠️ <b>Big Drawdown Alert</b>\nAccount: ${account}\nFloating P&L: ${pnlNum.toFixed(2)} (threshold: ${threshold})`
+          `⚠️ <b>Big Drawdown Alert</b>\nAccount: ${accountLabel}\nFloating P&L: ${pnlNum.toFixed(2)} (threshold: ${threshold})`
         );
       } else if (pnlNum > threshold / 2 && alreadySent) {
         patch.drawdown_alert_sent = false;
@@ -106,9 +107,10 @@ router.post("/heartbeat", async (req, res) => {
       const today = todayDateString();
       if (target > 0 && todaysEarning >= target && row.daily_target_notified_date !== today) {
         patch.daily_target_notified_date = today;
+        const accountLabel = row.nickname ? `${account} (${row.nickname})` : account;
         await notifyEvent(
           row.telegram_chat_id,
-          `🎯 <b>Daily Profit Target Hit!</b>\nAccount: ${account}\nAaj ka booked profit: ${todaysEarning.toFixed(2)} (target: ${target})`
+          `🎯 <b>Daily Profit Target Hit!</b>\nAccount: ${accountLabel}\nAaj ka booked profit: ${todaysEarning.toFixed(2)} (target: ${target})`
         );
       }
     }
