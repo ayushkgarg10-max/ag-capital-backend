@@ -20,6 +20,8 @@ function mapRow(row) {
     confirmedLicense: row.confirmed_license || "",
     tradingMode: row.trading_mode || "",
     confirmedTradingMode: row.confirmed_trading_mode || "",
+    licenseType: row.license_type || "LIFETIME",
+    licenseExpiryDate: row.license_expiry_date ? row.license_expiry_date.toISOString().slice(0, 10) : "",
     timeFilterEnabled: row.time_filter_enabled || "",
     timeFilterStart: row.time_filter_start || "",
     timeFilterEnd: row.time_filter_end || "",
