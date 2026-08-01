@@ -17,6 +17,9 @@ import telegramWebhookRouter from "./routes/telegramWebhook.js";
 const app = express();
 app.use(cors());
 app.use(express.json());
+// Serves /public/payment-qr.png at https://api.agcapitalfx.com/payment-qr.png -
+// used by the license-expiry Telegram reminders to attach the payment QR.
+app.use(express.static("public"));
 
 // SAFETY NET: any error anywhere that isn't caught by a route's own
 // try/catch would otherwise crash the ENTIRE process (killing every
