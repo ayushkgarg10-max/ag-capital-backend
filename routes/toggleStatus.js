@@ -38,6 +38,8 @@ router.post("/toggle-status", async (req, res) => {
       advancedSettings,
       telegramChatId,
       nickname,
+      licenseType,
+      licenseExpiryDate,
       renameFrom,
     } = req.body || {};
 
@@ -54,7 +56,9 @@ router.post("/toggle-status", async (req, res) => {
       advancedSettings !== undefined ||
       telegramChatId !== undefined ||
       nickname !== undefined ||
-      renameFrom !== undefined;
+      renameFrom !== undefined ||
+      licenseType !== undefined ||
+      licenseExpiryDate !== undefined;
 
     if (!account || !hasAnyField) {
       res.status(400).json({ success: false, message: "Missing account, and at least one field to update" });
@@ -88,7 +92,8 @@ router.post("/toggle-status", async (req, res) => {
 
     const existingRows = await query(
       `select account, status, command, license, trading_mode, time_filter_enabled, time_filter_start,
-              time_filter_end, daily_profit_target, requested_settings, telegram_chat_id, nickname
+              time_filter_end, daily_profit_target, requested_settings, telegram_chat_id, nickname,
+              license_type, license_expiry_date
        from accounts where account = $1`,
       [account]
     );
@@ -238,6 +243,32 @@ router.post("/toggle-status", async (req, res) => {
       if (newNickname !== (current.nickname || "")) {
         patch.nickname = newNickname;
         auditEntries.push({ action: "nickname", oldValue: current.nickname, newValue: newNickname });
+      }
+    }
+
+    if (licenseType !== undefined) {
+      const newType = String(licenseType).trim().toUpperCase();
+      if (newType && newType !== (current.license_type || "")) {
+        patch.license_type = newType;
+        auditEntries.push({ action: "licenseType", oldValue: current.license_type, newValue: newType });
+        // Changing the license type resets the reminder-sent tracking,
+        // so a freshly-renewed subscription starts its reminder cycle
+        // clean instead of silently reusing an old cycle's sent-flags.
+        patch.license_reminder_7d_sent = false;
+        patch.license_reminder_3d_sent = false;
+        patch.license_reminder_1d_sent = false;
+      }
+    }
+
+    if (licenseExpiryDate !== undefined) {
+      const newExpiry = String(licenseExpiryDate).trim() || null;
+      if (newExpiry !== (current.license_expiry_date ? current.license_expiry_date.toISOString().slice(0, 10) : null)) {
+        patch.license_expiry_date = newExpiry;
+        auditEntries.push({ action: "licenseExpiryDate", oldValue: current.license_expiry_date, newValue: newExpiry });
+        // New expiry date -> reset reminder-sent tracking too, same reasoning as above.
+        patch.license_reminder_7d_sent = false;
+        patch.license_reminder_3d_sent = false;
+        patch.license_reminder_1d_sent = false;
       }
     }
 
